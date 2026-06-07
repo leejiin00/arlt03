@@ -1,0 +1,126 @@
+import { useState, useEffect, useRef } from 'react'
+import spriteIdleSrc from '../assets/ChosoSitAndSleep.png'
+import spriteWaveSrc from '../assets/ChosowavingHand.png'
+import spriteWalkRightSrc from '../assets/ChosoWalkingLeftToRight.png'
+import spriteWalkLeftSrc from '../assets/ChosoWalkingRightToLeft.png'
+
+// Hauteur d'affichage cible en px — toutes les animations s'alignent dessus
+const TARGET_H = 154
+const WALK_SPEED = 1.5 // px par tick (16ms)
+
+const SPRITES = {
+  idle:      { src: spriteIdleSrc,      frames: 10, fps: 8,  w: 116, h: 205 },
+  wave:      { src: spriteWaveSrc,      frames: 8,  fps: 6, w: 118, h: 202, boost: 1.2, offset: -15 },
+  walkRight: { src: spriteWalkRightSrc, frames: 12, fps: 10, w: 100, h: 177 },
+  walkLeft:  { src: spriteWalkLeftSrc,  frames: 12, fps: 10, w: 92,  h: 177 },
+}
+
+// Calcule le scale pour que chaque sprite atteigne TARGET_H
+function scaleOf(s) { return TARGET_H / s.h }
+
+export default function Mascot() {
+  const [anim, setAnim] = useState('idle')
+  const [frame, setFrame] = useState(0)
+  const [posX, setPosX] = useState(200)
+  const [opacity, setOpacity] = useState(1)
+
+  const r = useRef({ anim: 'idle', beforeWave: 'idle', posX: 200, frame: 0 })
+
+  function switchTo(name) {
+    setOpacity(0)
+    setTimeout(() => {
+      r.current.anim  = name
+      r.current.frame = 0
+      setAnim(name)
+      setFrame(0)
+      setOpacity(1)
+    }, 80)
+  }
+
+  // Ticker d'animation (frames)
+  useEffect(() => {
+    const { fps, frames } = SPRITES[anim]
+    const id = setInterval(() => {
+      // idle : s'arrête à la dernière frame et attend la prochaine animation
+      if (r.current.anim === 'idle' && r.current.frame >= frames - 1) return
+
+      const next = (r.current.frame + 1) % frames
+      r.current.frame = next
+      setFrame(next)
+
+      // Fin de l'animation wave → retour à l'état précédent
+      if (r.current.anim === 'wave' && next === 0) {
+        const ret = r.current.beforeWave === 'wave' ? 'idle' : r.current.beforeWave
+        switchTo(ret)
+      }
+    }, 1000 / fps)
+    return () => clearInterval(id)
+  }, [anim]) // recrée l'intervalle à chaque changement d'animation
+
+  // Déplacement horizontal pendant la marche
+  useEffect(() => {
+    if (anim !== 'walkRight' && anim !== 'walkLeft') return
+    const dir = anim === 'walkRight' ? WALK_SPEED : -WALK_SPEED
+    const spriteW = SPRITES[anim].w * scaleOf(SPRITES[anim])
+
+    const id = setInterval(() => {
+      const maxX = window.innerWidth - spriteW - 16
+      const nx = Math.max(8, Math.min(maxX, r.current.posX + dir))
+      r.current.posX = nx
+      setPosX(nx)
+      if (nx >= maxX || nx <= 8) switchTo('idle')
+    }, 16)
+    return () => clearInterval(id)
+  }, [anim])
+
+  // Déclenchement automatique de la marche toutes les ~15-25 secondes
+  useEffect(() => {
+    let t
+    function schedule() {
+      t = setTimeout(() => {
+        if (r.current.anim === 'idle') {
+          switchTo(r.current.posX < window.innerWidth / 2 ? 'walkRight' : 'walkLeft')
+        }
+        schedule()
+      }, 15000 + Math.random() * 10000)
+    }
+    schedule()
+    return () => clearTimeout(t)
+  }, [])
+
+  function handleClick() {
+    if (r.current.anim !== 'wave') {
+      r.current.beforeWave = r.current.anim
+      switchTo('wave')
+    }
+  }
+
+  const s = SPRITES[anim]
+  const sc = scaleOf(s)
+
+  return (
+    <div
+      onClick={handleClick}
+      title="psst ✿"
+      style={{
+        position: 'fixed',
+        bottom: s.offset ?? 0,
+        left: posX,
+        width: s.w * sc,
+        height: s.h * sc,
+        backgroundImage: `url(${s.src})`,
+        backgroundSize: `${s.frames * s.w * sc}px ${s.h * sc}px`,
+        backgroundPosition: `-${frame * s.w * sc}px 0px`,
+        backgroundRepeat: 'no-repeat',
+        imageRendering: 'pixelated',
+        opacity,
+        transition: 'opacity 0.08s ease',
+        cursor: 'pointer',
+        zIndex: 9999,
+        userSelect: 'none',
+        transform: s.boost ? `scale(${s.boost})` : undefined,
+        transformOrigin: 'bottom center',
+      }}
+    />
+  )
+}
